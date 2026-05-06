@@ -1,7 +1,7 @@
 pipeline {
- agent {
-  kubernetes {
-    yaml '''
+  agent {
+    kubernetes {
+      yaml '''
 apiVersion: v1
 kind: Pod
 spec:
@@ -11,8 +11,8 @@ spec:
     command: ['cat']
     tty: true
 '''
+    }
   }
-}
 
   parameters {
     string(name:'TAG_NAME',defaultValue: '',description:'')
@@ -20,9 +20,6 @@ spec:
 
   environment {
     DOCKER_CREDENTIAL_ID = 'dockerhub-id'
-    REGISTRY = 'docker.io'
-    DOCKERHUB_NAMESPACE = 'zte020415'
-    APP_NAME = 'devops-maven-sample'
   }
 
   stages {
@@ -44,15 +41,17 @@ spec:
       steps {
         container('maven') {
           sh 'mvn clean package -DskipTests'
-          sh 'docker build -f Dockerfile-online -t $REGISTRY/$DOCKERH_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER .'
-
+          
+          // 👇 我已经帮你写死了！不会再出现双斜杠！
+          sh 'docker build -f Dockerfile-online -t docker.io/zte020415/devops-maven-sample:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER .'
+          
           withCredentials([usernamePassword(
             passwordVariable: 'DOCKER_PASSWORD',
             usernameVariable: 'DOCKER_USERNAME',
-            credentialsId: "$DOCKER_CREDENTIAL_ID"
+            credentialsId: "dockerhub-id"
           )]) {
-            sh 'echo "$DOCKER_PASSWORD" | docker login $REGISTRY -u "$DOCKER_USERNAME" --password-stdin'
-            sh 'docker push $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER'
+            sh 'echo "$DOCKER_PASSWORD" | docker login docker.io -u "$DOCKER_USERNAME" --password-stdin'
+            sh 'docker push docker.io/zte020415/devops-maven-sample:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER'
           }
         }
       }
