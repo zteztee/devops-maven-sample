@@ -1,8 +1,6 @@
 pipeline {
   agent {
-    node {
-      label 'maven'
-    },
+  
     kubernetes {
       // 这里直接定义 Pod 模板，自带 base + maven 容器
           yaml '''
@@ -20,7 +18,7 @@ pipeline {
         tty: true
     '''
         }
-  }
+  },
 
     parameters {
         string(name:'TAG_NAME',defaultValue: '',description:'')
