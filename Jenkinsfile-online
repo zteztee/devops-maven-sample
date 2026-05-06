@@ -1,23 +1,9 @@
 pipeline {
   agent {
   
-    kubernetes {
-      // 这里直接定义 Pod 模板，自带 base + maven 容器
-          yaml '''
-    apiVersion: v1
-    kind: Pod
-    spec:
-      containers:
-      - name: base
-        image: kubespheredev/builder-base:v3.1.0
-        command: ['cat']
-        tty: true
-      - name: maven
-        image: docker.m.daocloud.io/library/maven:3.8.6-openjdk-11
-        command: ['cat']
-        tty: true
-    '''
-        }
+     node {
+      label 'maven'
+    }
 }
  
 
