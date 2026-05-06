@@ -17,8 +17,8 @@ pipeline {
         command: ['cat']
         tty: true
     '''
-        }
-  },
+        },
+ 
 
     parameters {
         string(name:'TAG_NAME',defaultValue: '',description:'')
