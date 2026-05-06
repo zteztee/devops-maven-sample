@@ -11,7 +11,7 @@ spec:
     command: ['cat']
     tty: true
   - name: kaniko
-    image: registry.aliyuncs.com/kubesphere/kaniko-executor:v1.9.1
+    image: kubesphere/kaniko-executor:v1.9.1
     command: ['cat']
     tty: true
 '''
