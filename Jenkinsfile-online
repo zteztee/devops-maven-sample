@@ -1,17 +1,8 @@
 pipeline {
   // 关键修复：使用 KubeSphere 默认的 jenkins-agent 模板，100% 能找到资源
   agent {
-    kubernetes {
-      yaml '''
-apiVersion: v1
-kind: Pod
-spec:
-  containers:
-  - name: maven
-    image: kubesphere/builder-maven:v3.1.0
-    command: ['cat']
-    tty: true
-'''
+    node {
+      label 'maven'
     }
   }
 
