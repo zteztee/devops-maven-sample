@@ -42,8 +42,7 @@ spec:
     stages {
         stage ('checkout scm') {
             steps {
-                // 🔥 修复 GitHub SSL 证书错误（唯一新增）
-                sh 'git config --global http.sslVerify false'
+               
                 checkout(scm)
             }
         }
