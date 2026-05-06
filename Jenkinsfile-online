@@ -1,58 +1,56 @@
 pipeline {
-  agent any    // 不变
+  agent {
+    kubernetes {
+      yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: maven
+    image: kubesphere/builder-base:v4.2.1
+    command: ['cat']
+    tty: true
 
-  parameters {
-    string(name:'TAG_NAME',defaultValue: '',description:'')
-  }
+  - name: kaniko
+    image: registry.aliyuncs.com/kubesphere/kaniko-executor:v1.9.1
+    command: ['cat']
+    tty: true
+    volumeMounts:
+    - name: docker-config
+      mountPath: /kaniko/.docker/
 
-  environment {
-    DOCKER_CREDENTIAL_ID = 'dockerhub-id'
-    REGISTRY = 'docker.io'
-    DOCKERHUB_NAMESPACE = 'zte020415'
-    APP_NAME = 'devops-maven-sample'
+  volumes:
+  - name: docker-config
+    secret:
+      secretName: dockerhub-id
+'''
+    }
   }
 
   stages {
-    stage ('checkout scm') {
+    stage('checkout scm') {
       steps {
+        sh 'git config --global http.sslVerify false && git config --global https.sslVerify false'
         checkout(scm)
       }
     }
 
-    // 单元测试可以跑，不变
-    stage ('unit test') {
+    stage('build') {
       steps {
-        sh 'mvn clean package -DskipTests'
-      }
-    }
-
-    // ======================
-    // 👇 这里全部改成 KANIKO
-    // ======================
-    stage ('build & push with kaniko') {
-      steps {
-        container('kaniko') {
-          sh '''
-            /kaniko/executor \
-              --dockerfile=Dockerfile-online \
-              --context=./ \
-              --destination=$REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER
-          '''
+        container('maven') {
+          sh 'mvn clean package -DskipTests'
         }
       }
     }
 
-    // latest 版本也用 kaniko（不用 docker tag）
-    stage('push latest'){
-      when{ branch 'master' }
+    stage('kaniko push') {
       steps {
         container('kaniko') {
           sh '''
             /kaniko/executor \
-              --dockerfile=Dockerfile-online \
-              --context=./ \
-              --destination=$REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER \
-              --destination=$REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:latest
+              --context ./ \
+              --dockerfile Dockerfile-online \
+              --destination docker.io/zte020415/devops-maven-sample:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER
           '''
         }
       }
