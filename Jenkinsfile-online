@@ -10,26 +10,32 @@ spec:
     image: kubesphere/builder-base:v4.2.1
     command: ['cat']
     tty: true
+
+  - name: kaniko
+    image: registry.aliyuncs.com/kubesphere/kaniko-executor:v1.9.1
+    command: ['cat']
+    tty: true
     volumeMounts:
-    - mountPath: /var/run/docker.sock
-      name: docker-sock
+    - name: docker-config
+      mountPath: /kaniko/.docker/
+
   volumes:
-  - name: docker-sock
-    hostPath:
-      path: /var/run/docker.sock
+  - name: docker-config
+    secret:
+      secretName: dockerhub-id
 '''
     }
   }
 
   stages {
-    stage ('checkout scm') {
+    stage('checkout scm') {
       steps {
+        sh 'git config --global http.sslVerify false && git config --global https.sslVerify false'
         checkout(scm)
       }
     }
 
-    // 👇 这里我直接跳过单元测试！！！
-    stage ('unit test') {
+    stage('build') {
       steps {
         container('maven') {
           sh 'mvn clean package -DskipTests'
@@ -37,19 +43,15 @@ spec:
       }
     }
 
-    stage ('build & push') {
+    stage('kaniko push') {
       steps {
-        container('maven') {
-          sh 'docker build -f Dockerfile-online -t docker.io/zte020415/devops-maven-sample:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER .'
-          
-          withCredentials([usernamePassword(
-            passwordVariable: 'DOCKER_PASSWORD',
-            usernameVariable: 'DOCKER_USERNAME',
-            credentialsId: "dockerhub-id"
-          )]) {
-            sh 'echo "$DOCKER_PASSWORD" | docker login docker.io -u "$DOCKER_USERNAME" --password-stdin'
-            sh 'docker push docker.io/zte020415/devops-maven-sample:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER'
-          }
+        container('kaniko') {
+          sh '''
+            /kaniko/executor \
+              --context ./ \
+              --dockerfile Dockerfile-online \
+              --destination docker.io/zte020415/devops-maven-sample:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER
+          '''
         }
       }
     }
