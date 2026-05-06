@@ -1,18 +1,18 @@
 pipeline {
-  agent {
-    kubernetes {
-      yaml '''
+ agent {
+  kubernetes {
+    yaml '''
 apiVersion: v1
 kind: Pod
 spec:
   containers:
   - name: maven
-    image: hub.kubesphere.com.cn/kubesphere/builder-maven:v4.2.1
+    image: kubesphere/builder-maven:v3.1.0
     command: ['cat']
     tty: true
 '''
-    }
   }
+}
 
   parameters {
     string(name:'TAG_NAME',defaultValue: '',description:'')
