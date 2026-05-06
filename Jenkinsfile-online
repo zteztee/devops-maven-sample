@@ -7,19 +7,22 @@ kind: Pod
 spec:
   containers:
   - name: maven
-    image: kubesphere/builder-maven:v3.1.0
+    image: kubesphere/builder-base:v4.2.1  # 👈 就换这一句！
     command: ['cat']
     tty: true
+    volumeMounts:
+    - mountPath: /var/run/docker.sock
+      name: docker-sock
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
 '''
     }
   }
 
   parameters {
     string(name:'TAG_NAME',defaultValue: '',description:'')
-  }
-
-  environment {
-    DOCKER_CREDENTIAL_ID = 'dockerhub-id'
   }
 
   stages {
@@ -32,6 +35,8 @@ spec:
     stage ('unit test') {
       steps {
         container('maven') {
+          sh 'mvn -v'
+          sh 'docker -v'
           sh 'mvn clean test'
         }
       }
@@ -41,10 +46,8 @@ spec:
       steps {
         container('maven') {
           sh 'mvn clean package -DskipTests'
-          
-          // 👇 我已经帮你写死了！不会再出现双斜杠！
           sh 'docker build -f Dockerfile-online -t docker.io/zte020415/devops-maven-sample:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER .'
-          
+
           withCredentials([usernamePassword(
             passwordVariable: 'DOCKER_PASSWORD',
             usernameVariable: 'DOCKER_USERNAME',
