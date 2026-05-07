@@ -30,10 +30,16 @@ spec:
 
   stages {
     stage ('checkout scm') {
-      steps {
-        checkout(scm)
-      }
+  steps {
+    container('maven') {
+      sh '''
+        git config --global http.sslVerify false
+        git clone https://github.com/zteztee/devops-maven-sample.git . || true
+        git reset --hard origin/v4.1.0-sonarqube
+      '''
     }
+  }
+}
 
     // 👇 下面所有代码 100% 保持你原来的样子，不删不改
     stage ('unit test') {
