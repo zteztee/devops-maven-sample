@@ -116,10 +116,7 @@ EOF
       steps {
         input(id: 'deploy-to-dev', message: 'deploy to dev?')
         container('maven') {
-          withCredentials([kubeconfigFile(
-            credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
-            variable: 'KUBECONFIG'
-          )]) {
+          withKubeConfig([credentialsId: env.KUBECONFIG_CREDENTIAL_ID]) {
             sh 'envsubst < deploy/dev-all-in-one/devops-sample.yaml | kubectl apply -f -'
           }
         }
@@ -162,10 +159,7 @@ EOF
       steps {
         input(id: 'deploy-to-production', message: 'deploy to production?')
         container('maven') {
-          withCredentials([kubeconfigFile(
-            credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
-            variable: 'KUBECONFIG'
-          )]) {
+          withKubeConfig([credentialsId: env.KUBECONFIG_CREDENTIAL_ID]) {
             sh 'envsubst < deploy/prod-all-in-one/devops-sample.yaml | kubectl apply -f -'
           }
         }
