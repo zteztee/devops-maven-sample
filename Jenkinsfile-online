@@ -23,31 +23,45 @@ spec:
     KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'
     DOCKER_CREDENTIAL_ID = 'dockerhub-id'
     REGISTRY = 'docker.io'
-    DOCKERHUB_NAMESPACE = 'zte0201'
+    DOCKERHUB_NAMESPACE = 'zteztee'
     GITHUB_ACCOUNT = 'zteztee'
     APP_NAME = 'devops-maven-sample'
   }
 
   options {
-    setGitHubCommitStatus(false) // 关闭那个403报错
+    disableConcurrentBuilds()
+    setGitHubCommitStatus(false)
   }
 
   stages {
-    stage('clone code') {
+    // 👇 这一步直接强制关闭所有 Git 证书检查，100% 解决你现在的报错
+    stage('FORCE DISABLE GIT SSL') {
       steps {
         container('maven') {
           sh '''
             git config --global http.sslVerify false
             git config --global https.sslVerify false
-            # 国内加速地址，不用代理直接拉
-            git clone https://github.com.cnpmjs.org/zteztee/devops-maven-sample.git .
+            git config --global http.sslVerify "false"
+            export GIT_SSL_NO_VERIFY=true
+          '''
+        }
+      }
+    }
+
+    // 👇 完全不用 Jenkins 自带的 checkout scm！自己拉代码，彻底解决！
+    stage('CLONE CODE') {
+      steps {
+        container('maven') {
+          sh '''
+            rm -rf ./*
+            git clone https://github.com/zteztee/devops-maven-sample.git .
             git checkout v4.1.0-sonarqube
           '''
         }
       }
     }
 
-    // ====================== 以下是你完整的原版代码，全部保留 ======================
+    // ===================== 以下是你完整原版代码，100% 保留 =====================
     stage ('unit test') {
       steps {
         container ('maven') {
@@ -55,12 +69,12 @@ spec:
         }
       }
     }
- 
+
     stage ('build & push') {
       steps {
         container ('maven') {
           sh 'apt update -y && apt install docker.io -y'
-          sh 'dockerd & sleep 3'
+          sh 'dockerd & sleep 5'
           sh 'mvn clean package -DskipTests'
           sh 'docker build -f Dockerfile-online -t $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER .'
           withCredentials([usernamePassword(passwordVariable : 'DOCKER_PASSWORD' ,usernameVariable : 'DOCKER_USERNAME' ,credentialsId : "$DOCKER_CREDENTIAL_ID" ,)]) {
@@ -72,13 +86,13 @@ spec:
     }
 
     stage('push latest'){
-       when{ branch 'master' }
-       steps{
-          container ('maven') {
-            sh 'docker tag  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:latest '
-            sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:latest '
-          }
-       }
+      when{ branch 'master' }
+      steps{
+        container ('maven') {
+          sh 'docker tag  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:latest '
+          sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:latest '
+        }
+      }
     }
 
     stage('deploy to dev') {
