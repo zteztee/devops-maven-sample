@@ -6,6 +6,13 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
+  # Maven 容器：负责编译代码、git、kubectl
+  - name: maven
+    image: kubesphere/builder-base:v4.2.1
+    command: ['cat']
+    tty: true
+
+  # Kaniko 容器：专门构建&推送镜像（无 Docker 依赖）
   - name: kaniko
     image: gcr.io/kaniko-project/executor:v1.23.1-debug
     command: ['sleep']
@@ -13,11 +20,153 @@ spec:
 '''
     }
   }
+
+  parameters {
+    string(name:'TAG_NAME',defaultValue: '',description:'')
+  }
+
+  environment {
+    DOCKER_CREDENTIAL_ID = 'dockerhub-id'
+    GITHUB_CREDENTIAL_ID = 'github-id'
+    KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'
+    REGISTRY = 'docker.io'
+    DOCKERHUB_NAMESPACE = 'docker_username'
+    GITHUB_ACCOUNT = 'kubesphere'
+    APP_NAME = 'devops-maven-sample'
+    
+    # 自动拼接镜像名称（统一使用，避免写错）
+    IMAGE_SNAPSHOT = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:SNAPSHOT-${BRANCH_NAME}-${BUILD_NUMBER}"
+    IMAGE_LATEST   = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:latest"
+  }
+
   stages {
-    stage('check') {
+    stage('checkout scm') {
+      steps {
+        checkout(scm)
+      }
+    }
+
+    # ====================== 1. 代码编译（maven 容器） ======================
+    stage('maven build') {
+      steps {
+        container('maven') {
+          sh 'mvn clean package -DskipTests'
+        }
+      }
+    }
+
+    # ====================== 2. 构建镜像 + 推送（kaniko 容器） ======================
+    stage('build & push image') {
       steps {
         container('kaniko') {
-          sh '/kaniko/executor version'
+          // 登录镜像仓库（docker.io）
+          withCredentials([usernamePassword(
+            credentialsId: DOCKER_CREDENTIAL_ID,
+            usernameVariable: 'DOCKER_USERNAME',
+            passwordVariable: 'DOCKER_PASSWORD'
+          )]) {
+            sh '''
+mkdir -p /kaniko/.docker
+echo "{\\\"auths\\\":{\\\"${REGISTRY}\\\":{\\\"username\\\":\\\"${DOCKER_USERNAME}\\\",\\\"password\\\":\\\"${DOCKER_PASSWORD}\\\"}}}" > /kaniko/.docker/config.json
+            '''
+          }
+
+          // 构建 + 推送镜像（替代 docker build + docker push）
+          sh '''
+/kaniko/executor \
+  --context . \
+  --dockerfile Dockerfile-online \
+  --destination ${IMAGE_SNAPSHOT}
+          '''
+        }
+      }
+    }
+
+    # ====================== 3. master 分支推送 latest 标签 ======================
+    stage('push latest tag') {
+      when {
+        branch 'master'
+      }
+      steps {
+        container('kaniko') {
+          sh '''
+/kaniko/executor \
+  --context . \
+  --dockerfile Dockerfile-online \
+  --destination ${IMAGE_SNAPSHOT} \
+  --destination ${IMAGE_LATEST}
+          '''
+        }
+      }
+    }
+
+    # ====================== 4. master 部署到测试环境 ======================
+    stage('deploy to dev') {
+      when {
+        branch 'master'
+      }
+      steps {
+        input(id: 'deploy-to-dev', message: 'deploy to dev?')
+        container('maven') {
+          withCredentials([kubeconfigFile(
+            credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
+            variable: 'KUBECONFIG'
+          )]) {
+            sh 'envsubst < deploy/dev-all-in-one/devops-sample.yaml | kubectl apply -f -'
+          }
+        }
+      }
+    }
+
+    # ====================== 5. TAG 发布版本（git tag + 镜像标签） ======================
+    stage('push with tag') {
+      when {
+        expression { return params.TAG_NAME =~ /v.*/ }
+      }
+      steps {
+        input(id: 'release-image-with-tag', message: 'release image with tag?')
+        
+        // 打 git tag（maven 容器）
+        container('maven') {
+          withCredentials([usernamePassword(
+            credentialsId: GITHUB_CREDENTIAL_ID,
+            usernameVariable: 'GIT_USERNAME',
+            passwordVariable: 'GIT_PASSWORD'
+          )]) {
+            sh 'git config --global user.email "kubesphere@yunify.com"'
+            sh 'git config --global user.name "kubesphere"'
+            sh 'git tag -a $TAG_NAME -m "$TAG_NAME"'
+            sh 'git push http://$GIT_USERNAME:$GIT_PASSWORD@github.com/$GITHUB_ACCOUNT/devops-maven-sample.git --tags --ipv4'
+          }
+        }
+
+        // 推送 TAG 版本镜像（kaniko 容器）
+        container('kaniko') {
+          sh '''
+/kaniko/executor \
+  --context . \
+  --dockerfile Dockerfile-online \
+  --destination ${IMAGE_SNAPSHOT} \
+  --destination ${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:${TAG_NAME}
+          '''
+        }
+      }
+    }
+
+    # ====================== 6. TAG 发布到生产 ======================
+    stage('deploy to production') {
+      when {
+        expression { return params.TAG_NAME =~ /v.*/ }
+      }
+      steps {
+        input(id: 'deploy-to-production', message: 'deploy to production?')
+        container('maven') {
+          withCredentials([kubeconfigFile(
+            credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
+            variable: 'KUBECONFIG'
+          )]) {
+            sh 'envsubst < deploy/prod-all-in-one/devops-sample.yaml | kubectl apply -f -'
+          }
         }
       }
     }
