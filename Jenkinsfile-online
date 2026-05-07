@@ -7,7 +7,7 @@ kind: Pod
 spec:
   containers:
   - name: kaniko
-    image: gcr.io/kaniko-project/executor:v1.23.1
+    image: gcr.io/kaniko-project/executor:v1.23.1-debug
     command: ['sleep']
     args: ['99d']
 '''
