@@ -6,13 +6,11 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
-  # Maven 容器：负责编译代码、git、kubectl
   - name: maven
     image: kubesphere/builder-base:v4.2.1
     command: ['cat']
     tty: true
 
-  # Kaniko 容器：专门构建&推送镜像（无 Docker 依赖）
   - name: kaniko
     image: gcr.io/kaniko-project/executor:v1.23.1-debug
     command: ['sleep']
@@ -34,7 +32,6 @@ spec:
     GITHUB_ACCOUNT = 'zteztee'
     APP_NAME = 'devops-maven-sample'
     
-    # 自动拼接镜像名称（统一使用，避免写错）
     IMAGE_SNAPSHOT = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:SNAPSHOT-${BRANCH_NAME}-${BUILD_NUMBER}"
     IMAGE_LATEST   = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:latest"
   }
@@ -46,7 +43,6 @@ spec:
       }
     }
 
-    # ====================== 1. 代码编译（maven 容器） ======================
     stage('maven build') {
       steps {
         container('maven') {
@@ -55,7 +51,6 @@ spec:
       }
     }
 
-    # ====================== 2. 构建镜像 + 推送（kaniko 容器） ======================
     stage('build & push image') {
       steps {
         container('kaniko') {
@@ -82,7 +77,6 @@ echo "{\\\"auths\\\":{\\\"${REGISTRY}\\\":{\\\"username\\\":\\\"${DOCKER_USERNAM
       }
     }
 
-    # ====================== 3. master 分支推送 latest 标签 ======================
     stage('push latest tag') {
       when {
         branch 'master'
@@ -100,7 +94,6 @@ echo "{\\\"auths\\\":{\\\"${REGISTRY}\\\":{\\\"username\\\":\\\"${DOCKER_USERNAM
       }
     }
 
-    # ====================== 4. master 部署到测试环境 ======================
     stage('deploy to dev') {
       when {
         branch 'master'
@@ -118,7 +111,6 @@ echo "{\\\"auths\\\":{\\\"${REGISTRY}\\\":{\\\"username\\\":\\\"${DOCKER_USERNAM
       }
     }
 
-    # ====================== 5. TAG 发布版本（git tag + 镜像标签） ======================
     stage('push with tag') {
       when {
         expression { return params.TAG_NAME =~ /v.*/ }
@@ -140,7 +132,6 @@ echo "{\\\"auths\\\":{\\\"${REGISTRY}\\\":{\\\"username\\\":\\\"${DOCKER_USERNAM
           }
         }
 
-        // 推送 TAG 版本镜像（kaniko 容器）
         container('kaniko') {
           sh '''
 /kaniko/executor \
@@ -153,7 +144,6 @@ echo "{\\\"auths\\\":{\\\"${REGISTRY}\\\":{\\\"username\\\":\\\"${DOCKER_USERNAM
       }
     }
 
-    # ====================== 6. TAG 发布到生产 ======================
     stage('deploy to production') {
       when {
         expression { return params.TAG_NAME =~ /v.*/ }
