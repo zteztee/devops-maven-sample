@@ -27,7 +27,7 @@ spec:
     DOCKER_CREDENTIAL_ID = 'dockerhub-id'
     GITHUB_CREDENTIAL_ID = 'github-id'
     KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'
-    REGISTRY = 'docker.io'
+    REGISTRY = 'https://index.docker.io/v1/'
     DOCKERHUB_NAMESPACE = 'zte020415'
     GITHUB_ACCOUNT = 'zteztee'
     APP_NAME = 'devops-maven-sample'
