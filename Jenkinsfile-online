@@ -126,6 +126,7 @@ EOF
             usernameVariable: 'GIT_USERNAME',
             passwordVariable: 'GIT_PASSWORD'
           )]) {
+            sh 'git config --global --add safe.directory *'
             sh 'git config --global user.email "kubesphere@yunify.com"'
             sh 'git config --global user.name "kubesphere"'
             sh 'git tag -a $TAG_NAME -m "$TAG_NAME"'
