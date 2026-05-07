@@ -10,6 +10,11 @@ spec:
     image: kubesphere/builder-base:v4.2.1
     command: ['cat']
     tty: true
+
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:v1.23.1-debug
+    command: ['sleep']
+    args: ['99d']
 '''
     }
   }
@@ -20,57 +25,67 @@ spec:
 
   environment {
     DOCKER_CREDENTIAL_ID = 'dockerhub-id'
-    REGISTRY = 'docker.io'
-    DOCKERHUB_NAMESPACE = 'zteztee'
+    GITHUB_CREDENTIAL_ID = 'github-id'
+    KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'
+    REGISTRY = 'https://index.docker.io/v1/'
+    DOCKERHUB_NAMESPACE = 'zte020415'
+    GITHUB_ACCOUNT = 'zteztee'
     APP_NAME = 'devops-maven-sample'
-  }
-
-  options {
-    setGitHubCommitStatus(false)
+    
+    IMAGE_SNAPSHOT = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:SNAPSHOT-${BRANCH_NAME}-${BUILD_NUMBER}"
+    IMAGE_LATEST   = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:latest"
   }
 
   stages {
-    stage('clone code') {
+    stage('checkout scm') {
       steps {
-        container('maven') {
+        checkout(scm)
+      }
+    }
+
+    // ====================== 这里直接跳过了 maven build ======================
+    // stage('maven build') {
+    //   steps {
+    //     container('maven') {
+    //       sh 'mvn clean package -DskipTests'
+    //     }
+    //   }
+    // }
+
+    stage('build & push image (test only)') {
+      steps {
+        container('kaniko') {
+          // 登录镜像仓库（修复版）
+          withCredentials([usernamePassword(
+            credentialsId: DOCKER_CREDENTIAL_ID,
+            usernameVariable: 'DOCKER_USERNAME',
+            passwordVariable: 'DOCKER_PASSWORD'
+          )]) {
+            sh '''
+mkdir -p /kaniko/.docker
+cat > /kaniko/.docker/config.json << EOF
+{
+  "auths": {
+    "https://index.docker.io/v1/": {
+      "username": "${DOCKER_USERNAME}",
+      "password": "${DOCKER_PASSWORD}"
+    }
+  }
+}
+EOF
+            '''
+          }
+
+          // 直接构建推送，不依赖 target 目录
           sh '''
-            git config --global http.sslVerify false
-            git config --global https.sslVerify false
-            export GIT_SSL_NO_VERIFY=true
-            
-            rm -rf ./*
-            git clone https://github.com/zteztee/devops-maven-sample.git .
-            git checkout v4.1.0-sonarqube
+/kaniko/executor \
+  --context . \
+  --dockerfile Dockerfile-online \
+  --destination ${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:test-push
           '''
         }
       }
     }
 
-    stage('unit test') {
-      steps {
-        container('maven') {
-          sh 'mvn clean package -DskipTests'
-        }
-      }
-    }
-
-    stage('build & push with kaniko') {
-      steps {
-        container('maven') {
-          withCredentials([usernamePassword(usernameVariable: 'USER', passwordVariable: 'PWD', credentialsId: 'dockerhub-id')]) {
-            sh '''
-              mkdir -p /kaniko/.docker
-              echo "{\\\"auths\\\":{\\\"${REGISTRY}\\\":{\\\"auth\\\":\\\"$(echo -n $USER:$PWD | base64 -w0)\\\"}}}" > /kaniko/.docker/config.json
-            '''
-
-            sh '''
-              /kaniko/executor --context ./ \
-              --dockerfile Dockerfile-online \
-              --destination ${REGISTRY}/${DOCKERH_NAMESPACE}/${APP_NAME}:SNAPSHOT-${BRANCH_NAME}-${BUILD_NUMBER}
-            '''
-          }
-        }
-      }
-    }
   }
 }
