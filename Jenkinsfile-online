@@ -10,114 +10,154 @@ spec:
     image: kubesphere/builder-base:v4.2.1
     command: ['cat']
     tty: true
+
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:v1.23.1-debug
+    command: ['sleep']
+    args: ['99d']
 '''
     }
   }
 
   parameters {
-    string(name:'TAG_NAME',defaultValue: '',description:'')
+    string(name:'TAG_NAME',defaultValue: '',description:'tag 如 v1.0')
   }
 
+  environment {
+    DOCKER_CREDENTIAL_ID = 'dockerhub-id'          
+    GITHUB_CREDENTIAL_ID = 'github-id'            
+    KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'   
+    DOCKERHUB_NAMESPACE = 'zte020415'              
 
-    environment {
-        DOCKER_CREDENTIAL_ID = 'dockerhub-id'
-        GITHUB_CREDENTIAL_ID = 'github-id'
-        KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'
-        REGISTRY = 'docker.io'
-        DOCKERHUB_NAMESPACE = 'docker_username'
-        GITHUB_ACCOUNT = 'kubesphere'
-        APP_NAME = 'devops-maven-sample'
+    REGISTRY = 'docker.io'
+    REGISTRY_AUTH = 'https://index.docker.io/v1/'
+    GITHUB_ACCOUNT = 'zteztee'
+    APP_NAME = 'devops-maven-sample'
+
+    IMAGE_SNAPSHOT = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:SNAPSHOT-${BRANCH_NAME}-${BUILD_NUMBER}"
+    IMAGE_LATEST   = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:latest"
+    IMAGE_TAG      = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:${TAG_NAME}"
+  }
+
+  stages {
+    stage('checkout scm') {
+      steps { checkout(scm) }
     }
 
-    stages {
-        stage ('checkout scm') {
-            steps {
-                checkout(scm)
-            }
+    stage('maven build') {
+      steps {
+        container('maven') {
+          sh 'mvn clean package -DskipTests'
         }
+      }
+    }
 
+    stage('build & push image') {
+      steps {
+        container('kaniko') {
+          withCredentials([usernamePassword(
+            credentialsId: DOCKER_CREDENTIAL_ID,
+            usernameVariable: 'DOCKER_USERNAME',
+            passwordVariable: 'DOCKER_PASSWORD'
+          )]) {
+            sh '''
+mkdir -p /kaniko/.docker
+cat > /kaniko/.docker/config.json << EOF
+{
+  "auths": {
+    "https://index.docker.io/v1/": {
+      "username": "${DOCKER_USERNAME}",
+      "password": "${DOCKER_PASSWORD}"
+    }
+  }
+}
+EOF
+            '''
+          }
+
+          sh '''
+/kaniko/executor \
+  --context . \
+  --dockerfile Dockerfile-online \
+  --destination ${IMAGE_SNAPSHOT}
+          '''
+        }
+      }
+    }
+
+    stage('push latest tag') {
+      when { branch 'master' }
+      steps {
+        container('kaniko') {
+          sh '''
+/kaniko/executor \
+  --context . \
+  --dockerfile Dockerfile-online \
+  --destination ${IMAGE_SNAPSHOT} \
+  --destination ${IMAGE_LATEST}
+          '''
+        }
+      }
+    }
+
+    stage('deploy to dev') {
+      when { branch 'master' }
+      steps {
+        input(id: 'deploy-to-dev', message: 'deploy to dev?')
+        container('maven') {
+          withCredentials([kubeconfigFile(
+            credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
+            variable: 'KUBECONFIG'
+          )]) {
+            sh 'envsubst < deploy/dev-all-in-one/devops-sample.yaml | kubectl apply -f -'
+          }
+        }
+      }
+    }
+
+    stage('push with tag') {
+      when { expression { return params.TAG_NAME =~ /v.*/ } }
+      steps {
+        input(id: 'release-image-with-tag', message: 'release image with tag?')
         
- 
-        stage ('build & push') {
-            steps {
-                container ('maven') {
-                    sh 'mvn clean package -DskipTests'
-                    sh 'docker build -f Dockerfile-online -t $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER .'
-                    withCredentials([usernamePassword(passwordVariable : 'DOCKER_PASSWORD' ,usernameVariable : 'DOCKER_USERNAME' ,credentialsId : "$DOCKER_CREDENTIAL_ID" ,)]) {
-                        sh 'echo "$DOCKER_PASSWORD" | docker login $REGISTRY -u "$DOCKER_USERNAME" --password-stdin'
-                        sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER'
-                    }
-                }
-            }
+        container('maven') {
+          withCredentials([usernamePassword(
+            credentialsId: GITHUB_CREDENTIAL_ID,
+            usernameVariable: 'GIT_USERNAME',
+            passwordVariable: 'GIT_PASSWORD'
+          )]) {
+            sh 'git config --global user.email "kubesphere@yunify.com"'
+            sh 'git config --global user.name "kubesphere"'
+            sh 'git tag -a $TAG_NAME -m "$TAG_NAME"'
+            sh 'git push http://$GIT_USERNAME:$GIT_PASSWORD@github.com/$GITHUB_ACCOUNT/devops-maven-sample.git --tags --ipv4'
+          }
         }
 
-        stage('push latest'){
-           when{
-             branch 'master'
-           }
-           steps{
-                container ('maven') {
-                  sh 'docker tag  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:latest '
-                  sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:latest '
-                }
-           }
+        container('kaniko') {
+          sh '''
+/kaniko/executor \
+  --context . \
+  --dockerfile Dockerfile-online \
+  --destination ${IMAGE_SNAPSHOT} \
+  --destination ${IMAGE_TAG}
+          '''
         }
-
-        stage('deploy to dev') {
-          when{
-            branch 'master'
-          }
-          steps {
-            input(id: 'deploy-to-dev', message: 'deploy to dev?')
-            container ('maven') {
-                withCredentials([
-                    kubeconfigFile(
-                    credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
-                    variable: 'KUBECONFIG')
-                    ]) {
-                    sh 'envsubst < deploy/dev-all-in-one/devops-sample.yaml | kubectl apply -f -'
-                }
-            }
-          }
-        }
-        stage('push with tag'){
-          when{
-            expression{
-              return params.TAG_NAME =~ /v.*/
-            }
-          }
-          steps {
-              container ('maven') {
-                input(id: 'release-image-with-tag', message: 'release image with tag?')
-                  withCredentials([usernamePassword(credentialsId: "$GITHUB_CREDENTIAL_ID", passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
-                    sh 'git config --global user.email "kubesphere@yunify.com" '
-                    sh 'git config --global user.name "kubesphere" '
-                    sh 'git tag -a $TAG_NAME -m "$TAG_NAME" '
-                    sh 'git push http://$GIT_USERNAME:$GIT_PASSWORD@github.com/$GITHUB_ACCOUNT/devops-maven-sample.git --tags --ipv4'
-                  }
-                sh 'docker tag  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:$TAG_NAME '
-                sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:$TAG_NAME '
-          }
-          }
-        }
-        stage('deploy to production') {
-          when{
-            expression{
-              return params.TAG_NAME =~ /v.*/
-            }
-          }
-          steps {
-            input(id: 'deploy-to-production', message: 'deploy to production?')
-            container ('maven') {
-                withCredentials([
-                    kubeconfigFile(
-                    credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
-                    variable: 'KUBECONFIG')
-                    ]) {
-                    sh 'envsubst < deploy/prod-all-in-one/devops-sample.yaml | kubectl apply -f -'
-                }
-            }
-          }
-        }
+      }
     }
+
+    stage('deploy to production') {
+      when { expression { return params.TAG_NAME =~ /v.*/ } }
+      steps {
+        input(id: 'deploy-to-production', message: 'deploy to production?')
+        container('maven') {
+          withCredentials([kubeconfigFile(
+            credentialsId: env.KUBECONFIG_CREDENTIAL_ID,
+            variable: 'KUBECONFIG'
+          )]) {
+            sh 'envsubst < deploy/prod-all-in-one/devops-sample.yaml | kubectl apply -f -'
+          }
+        }
+      }
+    }
+  }
 }
