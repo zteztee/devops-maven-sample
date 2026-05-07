@@ -27,13 +27,17 @@ spec:
     DOCKER_CREDENTIAL_ID = 'dockerhub-id'
     GITHUB_CREDENTIAL_ID = 'github-id'
     KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'
-    REGISTRY = 'https://index.docker.io/v1/'
+    
+    // ① 镜像地址 = 单纯 docker.io
+    REGISTRY = 'docker.io'
+    // ② 认证地址（内部使用）
+    REGISTRY_AUTH = 'https://index.docker.io/v1/'
+    
     DOCKERHUB_NAMESPACE = 'zte020415'
     GITHUB_ACCOUNT = 'zteztee'
     APP_NAME = 'devops-maven-sample'
     
-    IMAGE_SNAPSHOT = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:SNAPSHOT-${BRANCH_NAME}-${BUILD_NUMBER}"
-    IMAGE_LATEST   = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:latest"
+    IMAGE_TEST = "${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:test-push"
   }
 
   stages {
@@ -43,19 +47,11 @@ spec:
       }
     }
 
-    // ====================== 这里直接跳过了 maven build ======================
-    // stage('maven build') {
-    //   steps {
-    //     container('maven') {
-    //       sh 'mvn clean package -DskipTests'
-    //     }
-    //   }
-    // }
-
+    // 直接跳过 maven build
     stage('build & push image (test only)') {
       steps {
         container('kaniko') {
-          // 登录镜像仓库（修复版）
+          // 登录 docker hub
           withCredentials([usernamePassword(
             credentialsId: DOCKER_CREDENTIAL_ID,
             usernameVariable: 'DOCKER_USERNAME',
@@ -76,16 +72,15 @@ EOF
             '''
           }
 
-          // 直接构建推送，不依赖 target 目录
+          // 正确推送！！！
           sh '''
 /kaniko/executor \
   --context . \
   --dockerfile Dockerfile-online \
-  --destination ${REGISTRY}/${DOCKERHUB_NAMESPACE}/${APP_NAME}:test-push
+  --destination ${IMAGE_TEST}
           '''
         }
       }
     }
-
   }
 }
