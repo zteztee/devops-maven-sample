@@ -17,7 +17,7 @@ spec:
     stage('check') {
       steps {
         container('kaniko') {
-          sh '/kaniko/executor --version'
+          sh '/kaniko/executor version'
         }
       }
     }
